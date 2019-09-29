@@ -1,5 +1,6 @@
 #!/bin/bash
 nvidia-docker run \
-  -v /mnt/disk/mnt_dir:/mnt/disk/mnt_dir:rw \
+  -v /data/training/speech_recognition:/data/training/speech_recognition:rw \
+  -v /home/ubuntu:/home/ubuntu:rw \
   -v /etc/passwd:/etc/passwd:ro \
   -it --rm --user $(id -u) ds2-cuda9cudnn7:gpu

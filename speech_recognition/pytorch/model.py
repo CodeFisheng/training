@@ -1,5 +1,6 @@
 import math
 from collections import OrderedDict
+from torch.autograd import Function
 import sys
 
 import torch
@@ -7,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn.utils.rnn import PackedSequence
+import numpy as np
 
 supported_rnns = {
     'lstm': nn.LSTM,
@@ -15,6 +17,82 @@ supported_rnns = {
 }
 
 supported_rnns_inv = dict((v, k) for k, v in supported_rnns.items())
+
+def my_tensor_hook(grad):
+    print('grad: ', grad)
+def my_ops_hook(self, grad_input, grad_output):
+    print('grad_input: ', grad_input)
+    print('grad_output: ', grad_output)
+class Cast(Function):
+    def forward11(self, input):
+        input = input.to(torch.device('cpu'))
+        numpy_input = input.detach().numpy()
+	#print("float1", numpy_input)
+	numpy_input = numpy_input.getfield(np.uint32)
+	#print("int", hex(numpy_input[0][0][0]))
+	numpy_input = numpy_input.getfield(np.float32)
+	#print("float2", numpy_input)
+        #print('numpy_input cpu')
+        #print(numpy_input)
+        numpy_input = torch.from_numpy(numpy_input)
+        #print('input tensor cpu')
+        #result = input
+        result = numpy_input
+        #print(result)
+        return input.new(result).to(torch.device('cuda'))#.cuda()
+        #return input.new(result)
+
+    def forward(self, input):
+        #input = input.half()
+        input = input.int()
+	input = input >> 16 
+	input = input << 16 
+        input = input.float()
+        #input = input.to(torch.device('cpu'))
+        #numpy_input = input.detach().numpy()
+	#print("float1", numpy_input)
+	#numpy_input = numpy_input.getfield(np.uint32)
+	#numpy_input = numpy_input & 0xffff0000
+	#print("int", hex(numpy_input[0][0][0]))
+	#numpy_input = numpy_input.getfield(np.float32)
+	#print("float2", numpy_input)
+        #print('numpy_input cpu')
+        #print(numpy_input)
+        #numpy_input = torch.from_numpy(numpy_input)
+        #print('input tensor cpu')
+        result = input
+        #result = numpy_input
+        #print(result)
+        #return input.new(result).to(torch.device('cuda'))#.cuda()
+        return input.new(result)#.cuda()#.cuda()
+        #return input.new(result)
+    def backward11(self, grad):
+        grad = grad.cpu()
+        numpy_grad = grad.numpy()
+	numpy_grad = numpy_grad.getfield(np.uint32)
+	#numpy_grad = (numpy_grad & 0xffff0000) | 1 
+	#numpy_grad = numpy_grad & 0xffff0000
+	numpy_grad = numpy_grad.getfield(np.float32)
+        numpy_grad = torch.from_numpy(numpy_grad)
+        result = numpy_grad
+        #result = grad
+        #print('cast grad: \n', grad)
+        return grad.new(result).cuda()
+
+    def backward(self, grad):
+        #grad = grad.half()
+        grad = grad.float()
+        #grad = grad.cpu()
+        #numpy_grad = grad.numpy()
+	#numpy_grad = numpy_grad.getfield(np.uint32)
+	#numpy_grad = (numpy_grad & 0xffff0000) | 1 
+	#numpy_grad = numpy_grad & 0xffff0000
+	#numpy_grad = numpy_grad.getfield(np.float32)
+        #numpy_grad = torch.from_numpy(numpy_grad)
+        #result = numpy_grad
+        result = grad
+        #print('cast grad: \n', grad)
+        return grad.new(result)#.cuda()
 
 class SequenceWise(nn.Module):
     def __init__(self, module):
@@ -140,9 +218,11 @@ class DeepSpeech(nn.Module):
         num_classes = len(self._labels)
 
         self.conv = nn.Sequential(
+            nn.ConstantPad2d((5, 5, 0, 0), 0.0),
             nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2)),
             nn.BatchNorm2d(32),
             nn.Hardtanh(0, 20, inplace=True),
+            nn.ConstantPad2d((5, 5, 0, 0), 0.0),
             nn.Conv2d(32, 32, kernel_size=(21, 11), stride=(2, 1)),
             nn.BatchNorm2d(32),
             nn.Hardtanh(0, 20, inplace=True)
@@ -196,15 +276,29 @@ class DeepSpeech(nn.Module):
     def forward(self, x):
         x = self.conv(x)
 
+        #x.register_hook(my_tensor_hook)
+        #cast = Cast()
+        #x = cast(x)
+        #x.register_hook(my_tensor_hook)
+        #cast.register_backward_hook(myhook)
+        
         sizes = x.size()
         x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
         x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
 
         x = self.rnns(x)
+        #x.register_hook(my_tensor_hook)
+
+        #x.register_hook(my_tensor_hook)
+        #cast = Cast()
+        #x = cast(x)
+        #x.register_hook(my_tensor_hook)
+        #cast.register_backward_hook(myhook)
 
         x = self.fc(x)
         x = x.transpose(0, 1)
 
+        #x.register_hook(my_tensor_hook)
         # identity in training mode, logsoftmax in eval mode
         x = self.inference_log_softmax(x)
 

@@ -182,6 +182,8 @@ def main():
             inputs = Variable(inputs, requires_grad=False)
             target_sizes = Variable(target_sizes, requires_grad=False)
             targets = Variable(targets, requires_grad=False)
+            #print(inputs.shape)
+            #print(inputs.dtype)
 
             if params.cuda:
                 inputs = inputs.cuda()
